@@ -1,22 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import axios from "axios";
 import MockAdapter from "axios-mock-adapter";
-import { createQualiClient } from "./client";
+import { QualiClient } from "./client";
 
-// Mock the config module
+// Mock config
 vi.mock("../config", () => ({
 	config: {
-		QUALI_TOKEN: "mock-token",
+		QUALI_PORTAL_HOST: "mock-host",
+        QUALI_PORTAL_PORT: 8032,
+        QUALI_USER: "user",
+        QUALI_PASS: "pass",
+        QUALI_DOMAIN: "Global",
 		LAB_ID: "mock-lab-id",
-		IOX_HOST: "10.10.10.10",
+        IOX_HOST: "10.10.10.10",
         IOX_USER: "root",
         IOX_PASS: "cisco123",
 	},
 }));
 
-import { config } from "../config";
-
-describe("Quali API Client", () => {
+describe("QualiClient", () => {
 	let mock: MockAdapter;
 
 	beforeEach(() => {
@@ -27,24 +29,36 @@ describe("Quali API Client", () => {
 		mock.restore();
 	});
 
-	it("should create an axios instance with the correct base URL and headers", () => {
-		const client = createQualiClient();
-		expect(client.defaults.baseURL).toBe("https://devnetsandbox.cisco.com/rm/api");
-		// @ts-ignore - Axios headers type definition can be tricky
-		expect(client.defaults.headers.Authorization).toBe(`Bearer ${config.QUALI_TOKEN}`);
+	it("should login and get reservation status", async () => {
+        const client = new QualiClient();
+        
+        // Mock Login
+        mock.onPut("/login").reply(200, '"mock-token-123"');
+        
+        // Mock Sandboxes
+        mock.onGet("/sandboxes").reply(200, [
+            { id: "lab-1", name: "My Lab", state: "Active", setup_start_time: "start", end_time: "end" }
+        ]);
+
+		const status = await client.getReservationStatus();
+		expect(status.id).toBe("lab-1");
+        expect(status.status).toBe("Active");
 	});
 
-	it("should return the reservation details", async () => {
-        const client = createQualiClient();
-		const mockResponse = {
-            id: config.LAB_ID,
-            status: "Active",
-            end_time: "2026-01-11T12:00:00Z"
-        };
+    it("should extend reservation", async () => {
+        const client = new QualiClient();
+        
+        // Mock Login
+        mock.onPut("/login").reply(200, '"mock-token-123"');
+        
+        // Mock Sandboxes (needed for extend to find ID)
+        mock.onGet("/sandboxes").reply(200, [
+            { id: "lab-1", name: "My Lab", state: "Active", setup_start_time: "start", end_time: "end" }
+        ]);
+        
+        // Mock Extend
+        mock.onPost("/sandboxes/lab-1/extend").reply(200, {});
 
-		mock.onGet(`/reservations/${config.LAB_ID}`).reply(200, mockResponse);
-
-		const response = await client.get(`/reservations/${config.LAB_ID}`);
-		expect(response.data).toEqual(mockResponse);
-	});
+        await expect(client.extendReservation(60)).resolves.toContain("Extended lab lab-1");
+    });
 });

@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getReservationStatus } from "../quali/reservation";
-import { extendReservation } from "../quali/extension";
+import { QualiClient } from "../quali/client";
 
 function formatError(error: unknown, context: string): string {
     if (error instanceof Error) {
@@ -11,13 +10,15 @@ function formatError(error: unknown, context: string): string {
 }
 
 export const registerLabTools = (server: McpServer) => {
+    const client = new QualiClient();
+
 	server.tool(
 		"get_reservation_status",
 		"Retrieves the current status and remaining time of the Cisco DevNet Sandbox reservation.",
 		{},
 		async () => {
             try {
-                const status = await getReservationStatus();
+                const status = await client.getReservationStatus();
                 return {
                     content: [
                         {
@@ -48,12 +49,12 @@ export const registerLabTools = (server: McpServer) => {
 		},
 		async ({ minutes }) => {
             try {
-                await extendReservation(minutes);
+                const result = await client.extendReservation(minutes);
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Successfully extended reservation by ${minutes} minutes.`,
+                            text: result,
                         },
                     ],
                 };

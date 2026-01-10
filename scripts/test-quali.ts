@@ -1,16 +1,17 @@
 import dotenv from "dotenv";
 dotenv.config();
-import { getReservationStatus } from "../src/quali/reservation";
-import { extendReservation } from "../src/quali/extension";
+import { QualiClient } from "../src/quali/client";
 
 console.log("Checking reservation status...");
+const client = new QualiClient();
+
 try {
-    const status = await getReservationStatus();
+    const status = await client.getReservationStatus();
     console.log("Status:", status);
 
     console.log("Attempting to extend reservation by 1 minute...");
-    await extendReservation(1);
-    console.log("Extension successful.");
+    const result = await client.extendReservation(1);
+    console.log(result);
 } catch (error) {
     console.error("Error:", error);
 }
