@@ -1,18 +1,25 @@
 {
-  "name": "dockeriox-sandbox-mcp",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2",
-    "axios": "^1.13.2",
-    "dotenv": "^17.2.3",
-    "zod": "^4.3.5"
-  }
+	"name": "dockeriox-sandbox-mcp",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "bun --watch index.ts",
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"check": "biome check --apply . && bun test"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.11",
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.25.2",
+		"axios": "^1.13.2",
+		"dotenv": "^17.2.3",
+		"zod": "^4.3.5"
+	}
 }
