@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// Mock dotenv before importing config
+vi.mock("dotenv", () => ({
+  default: {
+    config: vi.fn(),
+  },
+}));
 
 describe("Configuration Validation", () => {
 	beforeEach(() => {
