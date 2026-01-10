@@ -10,5 +10,17 @@ export const createQualiClient = (): AxiosInstance => {
 		},
 	});
 
+	client.interceptors.response.use(
+		(response) => response,
+		(error) => {
+			if (error.response?.status === 401) {
+				throw new Error(
+					"CloudShell Token Expired or Invalid. Please update QUALI_TOKEN in your .env file.",
+				);
+			}
+			return Promise.reject(error);
+		},
+	);
+
 	return client;
 };
