@@ -1,13 +1,13 @@
 {
 	"name": "dockeriox-sandbox-mcp",
-	"module": "index.ts",
+	"module": "src/index.ts",
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"dev": "bun --watch index.ts",
+		"dev": "bun --watch src/index.ts",
 		"lint": "biome check .",
 		"format": "biome format --write .",
-		"check": "biome check --apply . && bun test"
+		"check": "biome check --write . && bun test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.11",
