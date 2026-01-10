@@ -19,4 +19,14 @@ export class IoxClient {
       },
     });
   }
+
+  async getHealth(): Promise<boolean> {
+    try {
+      await this.client.get('/info');
+      return true;
+    } catch (error) {
+      console.error('IOx Health Check Failed:', error);
+      return false;
+    }
+  }
 }
