@@ -3,6 +3,13 @@ import { z } from "zod";
 import { getReservationStatus } from "../quali/reservation";
 import { extendReservation } from "../quali/extension";
 
+function formatError(error: unknown, context: string): string {
+    if (error instanceof Error) {
+        return `Error ${context}: ${error.message}`;
+    }
+    return `Error ${context}: Unknown error occurred`;
+}
+
 export const registerLabTools = (server: McpServer) => {
 	server.tool(
 		"get_reservation_status",
@@ -19,12 +26,12 @@ export const registerLabTools = (server: McpServer) => {
                         },
                     ],
                 };
-            } catch (error: any) {
+            } catch (error) {
                  return {
                     content: [
                         {
                             type: "text",
-                            text: `Error fetching reservation status: ${error.message}`,
+                            text: formatError(error, "fetching reservation status"),
                         },
                     ],
                     isError: true,
@@ -50,12 +57,12 @@ export const registerLabTools = (server: McpServer) => {
                         },
                     ],
                 };
-            } catch (error: any) {
+            } catch (error) {
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Error extending reservation: ${error.message}`,
+                            text: formatError(error, "extending reservation"),
                         },
                     ],
                     isError: true,
