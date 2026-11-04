@@ -11,7 +11,11 @@ async function main() {
 	const config = loadConfig(process.env);
 	const server = createMcpServer({
 		...(config.quali
-			? { lab: new LabService(new QualiSandboxApi(config.quali)) }
+			? {
+					lab: new LabService(new QualiSandboxApi(config.quali), {
+						...(config.quali.labId ? { labId: config.quali.labId } : {}),
+					}),
+				}
 			: {}),
 	});
 	await server.connect(new StdioServerTransport());

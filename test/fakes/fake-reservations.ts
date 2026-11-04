@@ -6,7 +6,7 @@ import type {
 
 /** In-memory ReservationGateway that records extensions. */
 export class FakeReservations implements ReservationGateway {
-	readonly extensions: Array<{ id: string; minutes: number }> = [];
+	readonly extensions: Array<{ id: string; duration: string }> = [];
 
 	constructor(public reservations: Reservation[]) {}
 
@@ -20,11 +20,8 @@ export class FakeReservations implements ReservationGateway {
 		return found;
 	}
 
-	async extendReservation(id: string, minutes: number): Promise<Reservation> {
-		this.extensions.push({ id, minutes });
-		return {
-			...(await this.getReservation(id)),
-			remainingTime: `PT${minutes}M`,
-		};
+	async extendReservation(id: string, duration: string): Promise<Reservation> {
+		this.extensions.push({ id, duration });
+		return { ...(await this.getReservation(id)), remainingTime: duration };
 	}
 }

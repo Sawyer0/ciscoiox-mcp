@@ -33,7 +33,8 @@ const flag = z.enum(["true", "false"]).transform((value) => value === "true");
 
 const qualiSchema = z.object({
 	QUALI_PORTAL_HOST: required("QUALI_PORTAL_HOST"),
-	QUALI_PORTAL_PORT: port.default(8032),
+	// CloudShell Sandbox API default port (help.quali.com, "Getting Started").
+	QUALI_PORTAL_PORT: port.default(82),
 	QUALI_DOMAIN: z.string().min(1).default("Global"),
 	QUALI_USER: required("QUALI_USER"),
 	QUALI_PASS: required("QUALI_PASS"),

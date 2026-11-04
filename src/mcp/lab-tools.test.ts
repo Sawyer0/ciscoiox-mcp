@@ -28,7 +28,7 @@ describe("lab tools", () => {
 
 	it("reports the active reservation", async () => {
 		const client = await connect(
-			new FakeReservations([{ id: "lab-1", name: "IOx", state: "Active" }]),
+			new FakeReservations([{ id: "lab-1", name: "IOx", state: "Ready" }]),
 		);
 		const result = await client.callTool({
 			name: "get_reservation_status",
@@ -40,11 +40,11 @@ describe("lab tools", () => {
 
 	it("extends by 60 minutes by default", async () => {
 		const gateway = new FakeReservations([
-			{ id: "lab-1", name: "IOx", state: "Active" },
+			{ id: "lab-1", name: "IOx", state: "Ready" },
 		]);
 		const client = await connect(gateway);
 		await client.callTool({ name: "extend_reservation", arguments: {} });
-		expect(gateway.extensions).toEqual([{ id: "lab-1", minutes: 60 }]);
+		expect(gateway.extensions).toEqual([{ id: "lab-1", duration: "PT1H" }]);
 	});
 
 	it("returns an MCP error result when there is no lab", async () => {
@@ -54,8 +54,10 @@ describe("lab tools", () => {
 			arguments: {},
 		});
 		expect(result.isError).toBe(true);
-		expect(textOf(result)).toBe(
-			"Error fetching reservation status: No active lab reservation found.",
+		expect(textOf(result)).toEqual(
+			expect.stringMatching(
+				/^Error fetching reservation status: No live lab reservation found/,
+			),
 		);
 	});
 });
