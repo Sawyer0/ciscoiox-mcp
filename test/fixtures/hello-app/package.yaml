@@ -1,0 +1,19 @@
+descriptor-schema-version: "2.2"
+
+info:
+  name: hello_iox
+  description: "Minimal PaaS app used by the end-to-end tests"
+  version: "1.0"
+
+app:
+  cpuarch: x86_64
+  type: paas
+  resources:
+    profile: c1.small
+    disk: 10
+    network:
+      - interface-name: eth0
+  startup:
+    runtime: python
+    runtime-version: "3.9"
+    target: app/main.py
