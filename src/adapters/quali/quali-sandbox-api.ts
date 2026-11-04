@@ -13,8 +13,14 @@ const sandboxSchema = z.object({
 	id: z.string(),
 	name: z.string().default(""),
 	state: z.string(),
-	setup_start_time: z.string().optional(),
+	start_time: z.string().optional(),
 	end_time: z.string().optional(),
+	remaining_time: z.string().optional(),
+});
+
+const extensionSchema = z.object({
+	end_time: z.string().optional(),
+	remaining_time: z.string().optional(),
 });
 
 type RetriableRequest = InternalAxiosRequestConfig & { retried?: boolean };
@@ -25,21 +31,23 @@ const toReservation = (raw: unknown): Reservation => {
 		id: sandbox.id,
 		name: sandbox.name,
 		state: sandbox.state,
-		...(sandbox.setup_start_time
-			? { startTime: sandbox.setup_start_time }
-			: {}),
+		...(sandbox.start_time ? { startTime: sandbox.start_time } : {}),
 		...(sandbox.end_time ? { endTime: sandbox.end_time } : {}),
 	};
 };
 
-/** ReservationGateway backed by the CloudShell Sandbox REST API. */
+/**
+ * ReservationGateway backed by the CloudShell Sandbox REST API v2
+ * (https://help.quali.com/api-guide/cs-sandbox-api).
+ */
 export class QualiSandboxApi implements ReservationGateway {
 	private readonly http: AxiosInstance;
 	private token: string | null = null;
 
 	constructor(private readonly config: QualiConfig) {
 		this.http = axios.create({
-			baseURL: `${config.baseUrl}/v1`,
+			baseURL: config.baseUrl,
+			timeout: 30_000,
 			headers: { "Content-Type": "application/json" },
 		});
 		this.http.interceptors.response.use(undefined, (error) =>
@@ -48,21 +56,29 @@ export class QualiSandboxApi implements ReservationGateway {
 	}
 
 	async listReservations(): Promise<Reservation[]> {
-		const data = await this.request("get", "/sandboxes");
+		const data = await this.request("get", "/v2/sandboxes");
 		return z.array(z.unknown()).parse(data).map(toReservation);
 	}
 
 	async getReservation(id: string): Promise<Reservation> {
 		return toReservation(
-			await this.request("get", `/sandboxes/${encodeURIComponent(id)}`),
+			await this.request("get", `/v2/sandboxes/${encodeURIComponent(id)}`),
 		);
 	}
 
-	async extendReservation(id: string, minutes: number): Promise<Reservation> {
-		await this.request("post", `/sandboxes/${encodeURIComponent(id)}/extend`, {
-			duration_minutes: minutes,
-		});
-		return this.getReservation(id);
+	async extendReservation(id: string, duration: string): Promise<Reservation> {
+		const path = `/v2/sandboxes/${encodeURIComponent(id)}/extend`;
+		const extension = extensionSchema.parse(
+			await this.request("post", path, { extended_time: duration }),
+		);
+		const current = await this.getReservation(id);
+		return {
+			...current,
+			...(extension.end_time ? { endTime: extension.end_time } : {}),
+			...(extension.remaining_time
+				? { remainingTime: extension.remaining_time }
+				: {}),
+		};
 	}
 
 	private async request(

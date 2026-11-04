@@ -16,7 +16,7 @@ describe("loadConfig", () => {
 	it("applies documented defaults for both integrations", () => {
 		expect(loadConfig({ ...quali, ...iox })).toEqual({
 			quali: {
-				baseUrl: "http://10.10.20.10:8032/api",
+				baseUrl: "http://10.10.20.10:82/api",
 				username: "dev",
 				password: "pass",
 				domain: "Global",
