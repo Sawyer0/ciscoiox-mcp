@@ -1,5 +1,11 @@
 import { ContractLog, contentType, jsonObject, onlyKeys } from "./contract";
 import { type InstalledPackage, openPackage } from "./fake-iox-package";
+import {
+	allocationsFor,
+	logText,
+	metricsFor,
+	PROFILES,
+} from "./fake-iox-telemetry";
 import { type FakeRequest, json, type Reply } from "./http-kit";
 
 export type FakeAppState = "DEPLOYED" | "ACTIVATED" | "RUNNING" | "STOPPED";
@@ -14,18 +20,6 @@ export interface FakeApp {
 }
 
 const PREFIX = "/iox/api/v2/hosting";
-export const PROFILES: Record<
-	string,
-	{ cpu: number; memory: number; vcpu: number }
-> = {
-	default: { cpu: 200, memory: 64, vcpu: 1 },
-	"c1.tiny": { cpu: 100, memory: 32, vcpu: 1 },
-	"c1.small": { cpu: 200, memory: 64, vcpu: 1 },
-	"c1.medium": { cpu: 400, memory: 128, vcpu: 1 },
-	"c1.large": { cpu: 600, memory: 256, vcpu: 1 },
-	"c1.xlarge": { cpu: 1200, memory: 256, vcpu: 1 },
-};
-const TOTAL = { cpu: 1000, memory: 512, disk: 256 };
 /** Allowed transitions from the IOx Local Manager reference guide. */
 const TRANSITIONS: Record<string, { from: FakeAppState[]; to: FakeAppState }> =
 	{
@@ -267,45 +261,16 @@ export class FakeIox {
 	}
 
 	private allocations() {
-		const reserved = [...this.apps.values()].filter(
-			(a) => a.state !== "DEPLOYED",
-		);
-		const sum = (key: "cpu" | "memory" | "disk") =>
-			reserved.reduce((total, a) => total + a.reserved[key], 0);
-		return {
-			cpu: { total_cpu: TOTAL.cpu, available_cpu: TOTAL.cpu - sum("cpu") },
-			memory: {
-				total_memory: TOTAL.memory,
-				available_memory: TOTAL.memory - sum("memory"),
-			},
-			disk: {
-				total_persistent_disk: TOTAL.disk,
-				available_persistent_disk: TOTAL.disk - sum("disk"),
-			},
-		};
+		return allocationsFor([...this.apps.values()]);
 	}
 
 	private logIndex(app: FakeApp) {
 		return ["stdout.log", "watchDog.log"].map((filename) => ({
 			filename,
-			size_bytes: this.logText(app, filename).length,
+			size_bytes: logText(app, filename).length,
 			timestamp: "Sat Jan 10 17:00:00 2026",
 			download_link: `/admin/download/logs?filename=${app.id}-${filename}`,
 		}));
-	}
-
-	/** Log lines reflect the app's real history, so tests see state-dependent output. */
-	logText(app: FakeApp, filename: string): string {
-		if (filename === "watchDog.log") {
-			return app.history
-				.map((state, i) => `${i + 1}: ${app.id} entered ${state}`)
-				.join("\n");
-		}
-		const runs = app.history.filter((s) => s === "RUNNING").length;
-		return Array.from(
-			{ length: runs * 3 },
-			(_, i) => `${app.pkg.name} says hello #${i + 1}`,
-		).join("\n");
 	}
 
 	private downloadLog(request: FakeRequest): Reply {
@@ -322,22 +287,11 @@ export class FakeIox {
 		if (!app) return cafError(404, "No such log");
 		return {
 			status: 200,
-			body: this.logText(app, qualified.slice(app.id.length + 1)),
+			body: logText(app, qualified.slice(app.id.length + 1)),
 		};
 	}
 
 	private metrics(app: FakeApp): Reply {
-		const running = app.state === "RUNNING";
-		return json(200, {
-			[app.id]: {
-				memory: {
-					current: running ? app.reserved.memory * 100 : 0,
-					unit: "KB",
-				},
-				cpu: { current: running ? 1.5 : 0, unit: "percent" },
-				network: { current: running ? 99601 : 0, unit: "bytes" },
-				disk: { current: 0.03, unit: "MB" },
-			},
-		});
+		return json(200, { [app.id]: metricsFor(app) });
 	}
 }
