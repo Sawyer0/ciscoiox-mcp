@@ -24,8 +24,10 @@ jobs:
         run: bun run lint
       - name: Typecheck
         run: bun run typecheck
-      - name: Tests with coverage
+      - name: Unit and adapter tests with coverage
         run: bun run coverage
+      - name: End-to-end over stdio against fake Cisco APIs
+        run: bun run test:e2e
       - name: Coverage summary
         if: always()
         run: |
