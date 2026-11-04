@@ -40,3 +40,29 @@ jobs:
           name: coverage
           path: coverage/
           if-no-files-found: ignore
+
+  node:
+    name: e2e on node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      # Bun only installs dependencies from bun.lock; the server runs on Node.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build dist/index.js
+        run: npm run build
+      - name: Built entry is an executable node script
+        run: |
+          test -x dist/index.js
+          head -1 dist/index.js | grep -qx '#!/usr/bin/env node'
+      - name: End-to-end over stdio with node dist/index.js
+        run: npm run test:e2e:node
