@@ -8,7 +8,7 @@
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
 		"start": "bun src/index.ts",
-		"lint": "biome check .",
+		"lint": "biome check --error-on-warnings .",
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
