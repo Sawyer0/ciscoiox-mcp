@@ -24,10 +24,16 @@ export class FakeCiscoServer {
 		(r) => this.quali.handle(r),
 		(r) => this.iox.handle(r),
 	];
+	private readonly unrouted: string[] = [];
 	private server: Server | undefined;
 
-	addHandler(handler: RouteHandler): void {
-		this.handlers.push(handler);
+	/** Requests no fake route recognised, plus each fake's contract violations. */
+	get violations(): string[] {
+		return [
+			...this.unrouted,
+			...this.quali.contract.violations,
+			...this.iox.contract.violations,
+		];
 	}
 
 	async start(options: FakeCiscoOptions = {}): Promise<number> {

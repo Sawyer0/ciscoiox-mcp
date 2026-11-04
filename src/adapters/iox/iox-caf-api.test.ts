@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { FakeCiscoServer } from "../../../test/fake-cisco/fake-cisco-server";
 import { testTls } from "../../../test/fake-cisco/test-tls";
 import { NotFoundError } from "../../domain/errors";
@@ -18,13 +18,21 @@ const api = (
 		...overrides,
 	});
 const pkg = createTarArchive([
-	{ path: "package.yaml", data: new TextEncoder().encode("info: {}\n") },
+	{
+		path: "package.yaml",
+		data: new TextEncoder().encode(
+			"descriptor-schema-version: '2.2'\ninfo: { name: demo, version: '2.1' }\napp: { type: docker, resources: { profile: c1.small, disk: 5 } }\n",
+		),
+	},
 ]);
 
 beforeAll(async () => {
 	port = await fake.start({ tls: testTls() });
 });
 afterAll(() => fake.stop());
+afterEach(() => {
+	expect(fake.violations).toEqual([]);
+});
 
 describe("IoxCafApi against a fake CAF over HTTPS", () => {
 	it("gets a token with Basic auth and sends it as X-Token-Id", async () => {
@@ -46,16 +54,25 @@ describe("IoxCafApi against a fake CAF over HTTPS", () => {
 	it("installs, drives the lifecycle and uninstalls an app", async () => {
 		const client = api();
 		await client.installApp("demo_app", pkg);
-		expect(fake.iox.apps.get("demo_app")?.packageFiles).toEqual([
-			"package.yaml",
-		]);
+		expect(fake.iox.apps.get("demo_app")?.pkg).toMatchObject({
+			files: ["package.yaml"],
+			name: "demo",
+			version: "2.1",
+			appType: "docker",
+		});
 		await client.changeState("demo_app", "activate", { profile: "c1.tiny" });
 		await client.changeState("demo_app", "start");
 		await expect(client.getApp("demo_app")).resolves.toMatchObject({
 			id: "demo_app",
+			name: "demo",
 			state: "RUNNING",
-			resources: { profile: "c1.tiny", cpu: 100, memory: 32 },
+			resources: { profile: "c1.tiny", cpu: 100, memory: 32, disk: 5 },
 		});
+		expect(fake.iox.apps.get("demo_app")?.history).toEqual([
+			"DEPLOYED",
+			"ACTIVATED",
+			"RUNNING",
+		]);
 		await expect(client.listApps()).resolves.toHaveLength(1);
 		await client.changeState("demo_app", "stop");
 		await client.changeState("demo_app", "deactivate");
@@ -83,7 +100,11 @@ describe("IoxCafApi against a fake CAF over HTTPS", () => {
 			downloadLink: expect.any(String),
 		});
 		const text = await client.downloadLog(first?.downloadLink ?? "");
-		expect(text.split("\n")).toHaveLength(5);
+		expect(text).toBe(""); // never started, so stdout is empty
+		const watchdog = await client.downloadLog(
+			"/admin/download/logs?filename=busy_app-watchDog.log",
+		);
+		expect(watchdog).toBe("1: busy_app entered DEPLOYED");
 	});
 
 	it("refuses log links that point at another host", async () => {
