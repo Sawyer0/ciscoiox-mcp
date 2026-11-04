@@ -1,23 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { QualiClient } from "../quali/client";
 import { createServer } from "./server";
 import { registerLabTools } from "./tools";
 
-// Mock QualiClient class
-vi.mock("../quali/client", () => {
-	return {
-		QualiClient: class {
-			getReservationStatus = vi
-				.fn()
-				.mockResolvedValue({ id: "mock-id", status: "Active" });
-			extendReservation = vi.fn().mockResolvedValue("Extended");
-		},
-	};
-});
-
 describe("MCP Tools Registration", () => {
-	it("should register lab tools", async () => {
+	it("should register lab tools", () => {
 		const server = createServer();
-
-		expect(() => registerLabTools(server)).not.toThrow();
+		const client = {} as QualiClient;
+		expect(() => registerLabTools(server, client)).not.toThrow();
 	});
 });
