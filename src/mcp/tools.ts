@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { QualiClient } from "../quali/client";
+import type { QualiClient } from "../quali/client";
 
 function formatError(error: unknown, context: string): string {
 	if (error instanceof Error) {
@@ -9,9 +9,7 @@ function formatError(error: unknown, context: string): string {
 	return `Error ${context}: Unknown error occurred`;
 }
 
-export const registerLabTools = (server: McpServer) => {
-	const client = new QualiClient();
-
+export const registerLabTools = (server: McpServer, client: QualiClient) => {
 	server.tool(
 		"get_reservation_status",
 		"Retrieves the current status and remaining time of the Cisco DevNet Sandbox reservation.",

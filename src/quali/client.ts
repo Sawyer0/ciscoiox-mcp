@@ -1,13 +1,12 @@
 import axios, { type AxiosInstance } from "axios";
-import { config } from "../config";
+import type { QualiConfig } from "../config/env";
 
 export class QualiClient {
 	private client: AxiosInstance;
 	private token: string | null = null;
 
-	constructor() {
-		// Point to the internal API port
-		const baseURL = `http://${config.QUALI_PORTAL_HOST}:${config.QUALI_PORTAL_PORT}/api/v1`;
+	constructor(private readonly config: QualiConfig) {
+		const baseURL = `${config.baseUrl}/v1`;
 
 		this.client = axios.create({
 			baseURL,
@@ -43,9 +42,9 @@ export class QualiClient {
 		try {
 			console.error(`Logging in to ${this.client.defaults.baseURL}...`);
 			const res = await this.client.put("/login", {
-				username: config.QUALI_USER,
-				password: config.QUALI_PASS,
-				domain: config.QUALI_DOMAIN,
+				username: this.config.username,
+				password: this.config.password,
+				domain: this.config.domain,
 			});
 
 			// The token comes back as a raw string with quotes usually

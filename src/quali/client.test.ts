@@ -3,20 +3,12 @@ import MockAdapter from "axios-mock-adapter";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QualiClient } from "./client";
 
-// Mock config
-vi.mock("../config", () => ({
-	config: {
-		QUALI_PORTAL_HOST: "mock-host",
-		QUALI_PORTAL_PORT: 8032,
-		QUALI_USER: "user",
-		QUALI_PASS: "pass",
-		QUALI_DOMAIN: "Global",
-		LAB_ID: "mock-lab-id",
-		IOX_HOST: "10.10.10.10",
-		IOX_USER: "root",
-		IOX_PASS: "cisco123",
-	},
-}));
+const config = {
+	baseUrl: "http://mock-host:8032/api",
+	username: "user",
+	password: "pass",
+	domain: "Global",
+};
 
 describe("QualiClient", () => {
 	let mock: MockAdapter;
@@ -30,7 +22,7 @@ describe("QualiClient", () => {
 	});
 
 	it("should login and get reservation status", async () => {
-		const client = new QualiClient();
+		const client = new QualiClient(config);
 
 		// Mock Login
 		mock.onPut("/login").reply(200, '"mock-token-123"');
@@ -52,7 +44,7 @@ describe("QualiClient", () => {
 	});
 
 	it("should extend reservation", async () => {
-		const client = new QualiClient();
+		const client = new QualiClient(config);
 
 		// Mock Login
 		mock.onPut("/login").reply(200, '"mock-token-123"');
