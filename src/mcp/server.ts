@@ -8,12 +8,12 @@ export const createServer = () => {
 		version: "1.0.0",
 	});
 
-    return server;
+	return server;
 };
 
 export const startServer = async () => {
-    const server = createServer();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("DockerIOx MCP Server running on stdio");
+	const server = createServer();
+	const transport = new StdioServerTransport();
+	await server.connect(transport);
+	console.error("DockerIOx MCP Server running on stdio");
 };
