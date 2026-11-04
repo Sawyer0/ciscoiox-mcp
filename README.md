@@ -66,7 +66,7 @@ Ports and adapters: the core knows nothing about HTTP, MCP or the file system.
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) 1.x
+- [Node.js](https://nodejs.org) 20.12+ or [Bun](https://bun.sh) 1.x to run the server (installing from a clone also uses Bun, since the lockfile is `bun.lock`)
 - A Cisco DevNet IOx sandbox reservation and its VPN (Cisco AnyConnect), or any IOx device you can reach
 
 ### Install and configure
@@ -74,9 +74,11 @@ Ports and adapters: the core knows nothing about HTTP, MCP or the file system.
 ```bash
 git clone https://github.com/Sawyer0/ciscoiox-mcp.git
 cd ciscoiox-mcp
-bun install
+bun install            # also builds dist/index.js for Node (the prepare script)
 cp .env.example .env   # fill in the portal and/or device credentials
 ```
+
+`bun run build` rebuilds `dist/index.js`, a single ESM bundle with a `#!/usr/bin/env node` shebang. It is also the package's `ciscoiox-mcp` bin.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -89,11 +91,55 @@ cp .env.example .env   # fill in the portal and/or device credentials
 | `IOX_USER`, `IOX_PASS` | – | Local Manager credentials |
 | `IOX_TLS_VERIFY` | `false` | Sandbox devices use self-signed certificates |
 
-Run it directly with `bun start` (it waits for an MCP client on stdin), or try it with the MCP Inspector: `npx @modelcontextprotocol/inspector bun src/index.ts`.
+Run it directly with `node dist/index.js` or `bun start` (both wait for an MCP client on stdin), or try it with the MCP Inspector: `npx @modelcontextprotocol/inspector node dist/index.js`. The package is not published to npm; `npx github:Sawyer0/ciscoiox-mcp` installs it from GitHub, builds it and runs it with Node.
 
 ### Use it from Claude Desktop or Cursor
 
-Add the server to `claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor), using absolute paths:
+Add the server to `claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor). Pick one of the launch styles below; the `env` block is the same for all of them, and any variable from the table above can go in it.
+
+**Node, from a clone** (run `bun install` or `bun run build` first; use absolute paths):
+
+```json
+{
+  "mcpServers": {
+    "ciscoiox": {
+      "command": "node",
+      "args": ["/absolute/path/to/ciscoiox-mcp/dist/index.js"],
+      "env": {
+        "QUALI_PORTAL_HOST": "10.10.20.10",
+        "QUALI_USER": "developer",
+        "QUALI_PASS": "your-password",
+        "IOX_HOST": "10.10.20.51",
+        "IOX_USER": "cisco",
+        "IOX_PASS": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Node via npx, straight from GitHub** (no clone; the first launch installs and builds, so it is slower):
+
+```json
+{
+  "mcpServers": {
+    "ciscoiox": {
+      "command": "npx",
+      "args": ["-y", "github:Sawyer0/ciscoiox-mcp"],
+      "env": {
+        "QUALI_PORTAL_HOST": "10.10.20.10",
+        "QUALI_USER": "developer",
+        "QUALI_PASS": "your-password",
+        "IOX_HOST": "10.10.20.51",
+        "IOX_USER": "cisco",
+        "IOX_PASS": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Bun, from a clone** (runs the TypeScript source, no build step):
 
 ```json
 {
@@ -123,16 +169,17 @@ bun run lint        # biome lint + format check, warnings fail
 bun run typecheck   # tsc --noEmit (strict, noUncheckedIndexedAccess)
 bun run test        # unit, adapter and end-to-end tests
 bun run coverage    # unit + adapter tests with a v8 coverage report and thresholds
-bun run test:e2e    # end-to-end tests only
+bun run test:e2e    # end-to-end tests against bun src/index.ts
+bun run build && bun run test:e2e:node   # the same suite against node dist/index.js
 ```
 
 How the tests prove it works:
 
 - **Unit tests** cover the services, quota rules, descriptor parsing and tar writer with in-memory fakes.
 - **Adapter tests** run the real HTTP clients against strict, stateful fakes of CloudShell and CAF (`test/fake-cisco/`). The fakes reject wrong paths, methods, content types, bodies and missing tokens, and record each as a contract violation; tests fail on any violation.
-- **End-to-end tests** (`test/e2e/`) spawn `bun src/index.ts` as a child process and drive every tool through a real MCP client over stdio, asserting on what the fake portal and device hold afterwards. A workflow test checks the sandbox, packages `test/fixtures/hello-app`, installs, activates, starts, reads metrics and logs, stops, deactivates and uninstalls it, and verifies the uploaded archive with the system `tar`.
+- **End-to-end tests** (`test/e2e/`) spawn the server as a child process (`bun src/index.ts` by default, `node dist/index.js` with `E2E_RUNTIME=node`) and drive every tool through a real MCP client over stdio, asserting on what the fake portal and device hold afterwards. A workflow test checks the sandbox, packages `test/fixtures/hello-app`, installs, activates, starts, reads metrics and logs, stops, deactivates and uninstalls it, and verifies the uploaded archive with the system `tar`.
 
-CI (GitHub Actions) runs lint, typecheck, tests with coverage and the end-to-end suite on every push and pull request.
+CI (GitHub Actions) runs lint, typecheck, tests with coverage and the end-to-end suite under Bun on every push and pull request, then builds `dist/` and runs the end-to-end suite again with `node dist/index.js` on Node 20 and 22.
 
 ## License
 
