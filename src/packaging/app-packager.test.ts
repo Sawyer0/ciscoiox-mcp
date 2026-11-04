@@ -1,4 +1,7 @@
-import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readTarEntries } from "../../test/fake-cisco/tar-entries";
 import { MemoryPackageFiles } from "../../test/fakes/memory-package-files";
@@ -35,6 +38,24 @@ describe("AppPackager", () => {
 			profile: "c1.small",
 			disk: 10,
 		});
+	});
+
+	it("packages the fixture into an archive the system tar verifies byte for byte", async () => {
+		const dir = resolve(import.meta.dirname, "../../test/fixtures/hello-app");
+		const pkg = await new AppPackager(new NodePackageFiles()).load(dir);
+		const out = mkdtempSync(join(tmpdir(), "pkg-"));
+		const archive = join(out, "package.tar");
+		writeFileSync(archive, pkg.bytes);
+		const verbose = execFileSync("tar", ["-tvf", archive], {
+			encoding: "utf8",
+		});
+		expect(verbose).toMatch(/-rw-r--r--.* package\.yaml/);
+		execFileSync("tar", ["-xf", archive, "-C", out]);
+		for (const file of ["package.yaml", "app/main.py"]) {
+			expect(readFileSync(join(out, file))).toEqual(
+				readFileSync(join(dir, file)),
+			);
+		}
 	});
 
 	it("passes a prebuilt archive through after checking it is one", async () => {
