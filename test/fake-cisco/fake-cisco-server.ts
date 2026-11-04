@@ -1,6 +1,7 @@
 import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
+import { FakeIox } from "./fake-iox";
 import { FakeQuali } from "./fake-quali";
 import {
 	type FakeRequest,
@@ -17,8 +18,12 @@ export interface FakeCiscoOptions {
 /** One local HTTP(S) server that answers like the DevNet Quali portal and an IOx device. */
 export class FakeCiscoServer {
 	readonly quali = new FakeQuali();
+	readonly iox = new FakeIox();
 	readonly requests: FakeRequest[] = [];
-	private readonly handlers: RouteHandler[] = [(r) => this.quali.handle(r)];
+	private readonly handlers: RouteHandler[] = [
+		(r) => this.quali.handle(r),
+		(r) => this.iox.handle(r),
+	];
 	private server: Server | undefined;
 
 	addHandler(handler: RouteHandler): void {
