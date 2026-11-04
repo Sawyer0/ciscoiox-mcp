@@ -1,28 +1,23 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import dotenv from "dotenv";
-import { QualiSandboxApi } from "./adapters/quali/quali-sandbox-api";
+import { buildServices, enabledGroups } from "./composition";
 import { loadConfig } from "./config/env";
 import { createMcpServer } from "./mcp/server";
-import { LabService } from "./services/lab-service";
 
-async function main() {
+async function main(): Promise<void> {
 	// stdout carries the MCP protocol, so dotenv must not print to it.
 	dotenv.config({ quiet: true });
-	const config = loadConfig(process.env);
-	const server = createMcpServer({
-		...(config.quali
-			? {
-					lab: new LabService(new QualiSandboxApi(config.quali), {
-						...(config.quali.labId ? { labId: config.quali.labId } : {}),
-					}),
-				}
-			: {}),
-	});
+	const services = buildServices(loadConfig(process.env));
+	const server = createMcpServer(services);
 	await server.connect(new StdioServerTransport());
-	console.error("ciscoiox-mcp running on stdio");
+	console.error(
+		`ciscoiox-mcp running on stdio (tools: ${enabledGroups(services).join(", ")})`,
+	);
 }
 
-main().catch((err) => {
-	console.error("Fatal error:", err);
+main().catch((error: unknown) => {
+	console.error(
+		`ciscoiox-mcp failed to start: ${error instanceof Error ? error.message : error}`,
+	);
 	process.exit(1);
 });
