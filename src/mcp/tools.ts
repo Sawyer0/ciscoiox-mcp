@@ -1,43 +1,43 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { QualiClient } from "../quali/client";
 
 function formatError(error: unknown, context: string): string {
-    if (error instanceof Error) {
-        return `Error ${context}: ${error.message}`;
-    }
-    return `Error ${context}: Unknown error occurred`;
+	if (error instanceof Error) {
+		return `Error ${context}: ${error.message}`;
+	}
+	return `Error ${context}: Unknown error occurred`;
 }
 
 export const registerLabTools = (server: McpServer) => {
-    const client = new QualiClient();
+	const client = new QualiClient();
 
 	server.tool(
 		"get_reservation_status",
 		"Retrieves the current status and remaining time of the Cisco DevNet Sandbox reservation.",
 		{},
 		async () => {
-            try {
-                const status = await client.getReservationStatus();
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: JSON.stringify(status, null, 2),
-                        },
-                    ],
-                };
-            } catch (error) {
-                 return {
-                    content: [
-                        {
-                            type: "text",
-                            text: formatError(error, "fetching reservation status"),
-                        },
-                    ],
-                    isError: true,
-                };
-            }
+			try {
+				const status = await client.getReservationStatus();
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(status, null, 2),
+						},
+					],
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatError(error, "fetching reservation status"),
+						},
+					],
+					isError: true,
+				};
+			}
 		},
 	);
 
@@ -45,30 +45,35 @@ export const registerLabTools = (server: McpServer) => {
 		"extend_reservation",
 		"Extends the current sandbox reservation by a specified number of minutes (default: 60).",
 		{
-			minutes: z.number().min(1).optional().default(60).describe("Number of minutes to extend the reservation."),
+			minutes: z
+				.number()
+				.min(1)
+				.optional()
+				.default(60)
+				.describe("Number of minutes to extend the reservation."),
 		},
 		async ({ minutes }) => {
-            try {
-                const result = await client.extendReservation(minutes);
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: result,
-                        },
-                    ],
-                };
-            } catch (error) {
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: formatError(error, "extending reservation"),
-                        },
-                    ],
-                    isError: true,
-                };
-            }
+			try {
+				const result = await client.extendReservation(minutes);
+				return {
+					content: [
+						{
+							type: "text",
+							text: result,
+						},
+					],
+				};
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: formatError(error, "extending reservation"),
+						},
+					],
+					isError: true,
+				};
+			}
 		},
 	);
 };
