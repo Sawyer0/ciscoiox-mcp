@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -7,18 +7,46 @@ import { FakeCiscoServer } from "../fake-cisco/fake-cisco-server";
 import { testTls } from "../fake-cisco/test-tls";
 
 export const ROOT = resolve(import.meta.dirname, "../..");
-export const ENTRY = join(ROOT, "src/index.ts");
 export const FIXTURE_APP = join(ROOT, "test/fixtures/hello-app");
-export const BUN = process.env.BUN_BIN ?? "bun";
 export const READY_LAB = "c1d2e3f4-0000-4000-8000-000000000002";
 
+/**
+ * How the suite launches the server, picked by E2E_RUNTIME: `bun` (default)
+ * runs the TypeScript source, `node` runs the built bundle, the same way an
+ * MCP client would with `node dist/index.js` or `npx`.
+ */
+export interface ServerCommand {
+	command: string;
+	args: string[];
+}
+
+export function serverCommand(
+	runtime = process.env.E2E_RUNTIME ?? "bun",
+): ServerCommand {
+	if (runtime === "bun") {
+		return {
+			command: process.env.BUN_BIN ?? "bun",
+			args: [join(ROOT, "src/index.ts")],
+		};
+	}
+	if (runtime === "node") {
+		const entry = join(ROOT, "dist/index.js");
+		if (!existsSync(entry)) {
+			throw new Error(`${entry} is missing; run the build first`);
+		}
+		return { command: process.env.NODE_BIN ?? "node", args: [entry] };
+	}
+	throw new Error(`E2E_RUNTIME must be bun or node, got "${runtime}"`);
+}
+
+export const SERVER = serverCommand();
 export interface ToolOutcome {
 	isError: boolean;
 	text: string;
 }
 
 /**
- * Runs the real server (`bun src/index.ts`) as a child process over stdio,
+ * Runs the real server (see SERVER) as a child process over stdio,
  * exactly as Claude Desktop or Cursor would, against a fake DevNet Quali
  * portal (HTTP) and a fake IOx device (HTTPS, self-signed).
  */
@@ -52,8 +80,8 @@ export class E2eHarness {
 			].join("\n"),
 		);
 		const transport = new StdioClientTransport({
-			command: BUN,
-			args: [ENTRY],
+			command: SERVER.command,
+			args: SERVER.args,
 			cwd,
 			env: {
 				PATH: process.env.PATH ?? "",
