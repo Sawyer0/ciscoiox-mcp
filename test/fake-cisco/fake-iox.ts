@@ -1,39 +1,53 @@
-import { type FakeRequest, json, parseJson, type Reply } from "./http-kit";
-import { readTarEntries } from "./tar-entries";
+import { ContractLog, contentType, jsonObject, onlyKeys } from "./contract";
+import { type InstalledPackage, openPackage } from "./fake-iox-package";
+import { type FakeRequest, json, type Reply } from "./http-kit";
 
-interface FakeApp {
+export type FakeAppState = "DEPLOYED" | "ACTIVATED" | "RUNNING" | "STOPPED";
+
+export interface FakeApp {
 	id: string;
-	name: string;
-	state: "DEPLOYED" | "ACTIVATED" | "RUNNING" | "STOPPED";
-	version: string;
-	resources: { profile: string; cpu: number; memory: number; disk: number };
-	packageFiles: string[];
+	state: FakeAppState;
+	pkg: InstalledPackage;
+	reserved: { profile: string; cpu: number; memory: number; disk: number };
+	/** Every state the app has been in, oldest first. */
+	history: FakeAppState[];
 }
 
 const PREFIX = "/iox/api/v2/hosting";
-const PROFILES: Record<string, { cpu: number; memory: number; vcpu: number }> =
-	{
-		"c1.tiny": { cpu: 100, memory: 32, vcpu: 1 },
-		"c1.small": { cpu: 200, memory: 64, vcpu: 1 },
-		"c1.medium": { cpu: 400, memory: 128, vcpu: 1 },
-		"c1.large": { cpu: 600, memory: 256, vcpu: 1 },
-		"c1.xlarge": { cpu: 1200, memory: 256, vcpu: 1 },
-	};
+export const PROFILES: Record<
+	string,
+	{ cpu: number; memory: number; vcpu: number }
+> = {
+	default: { cpu: 200, memory: 64, vcpu: 1 },
+	"c1.tiny": { cpu: 100, memory: 32, vcpu: 1 },
+	"c1.small": { cpu: 200, memory: 64, vcpu: 1 },
+	"c1.medium": { cpu: 400, memory: 128, vcpu: 1 },
+	"c1.large": { cpu: 600, memory: 256, vcpu: 1 },
+	"c1.xlarge": { cpu: 1200, memory: 256, vcpu: 1 },
+};
 const TOTAL = { cpu: 1000, memory: 512, disk: 256 };
 /** Allowed transitions from the IOx Local Manager reference guide. */
-const TRANSITIONS: Record<string, { from: string[]; to: FakeApp["state"] }> = {
-	activate: { from: ["DEPLOYED"], to: "ACTIVATED" },
-	start: { from: ["ACTIVATED", "STOPPED"], to: "RUNNING" },
-	stop: { from: ["RUNNING"], to: "STOPPED" },
-	deactivate: { from: ["ACTIVATED", "STOPPED"], to: "DEPLOYED" },
-};
+const TRANSITIONS: Record<string, { from: FakeAppState[]; to: FakeAppState }> =
+	{
+		activate: { from: ["DEPLOYED"], to: "ACTIVATED" },
+		start: { from: ["ACTIVATED", "STOPPED"], to: "RUNNING" },
+		stop: { from: ["RUNNING"], to: "STOPPED" },
+		deactivate: { from: ["ACTIVATED", "STOPPED"], to: "DEPLOYED" },
+	};
+const RESOURCE_KEYS = ["profile", "cpu", "memory", "disk"];
 
-const error = (status: number, description: string): Reply =>
+/** Legitimate CAF error responses (not client bugs). */
+const cafError = (status: number, description: string): Reply =>
 	json(status, { description, errorcode: -1, message: "Error" });
 
-/** Fake of the CAF REST API used by IOx Local Manager and ioxclient. */
+/**
+ * Strict, stateful fake of the CAF REST API. Requests that break the
+ * contract the real client must honour are rejected and logged in
+ * `contract.violations`.
+ */
 export class FakeIox {
 	readonly apps = new Map<string, FakeApp>();
+	readonly contract = new ContractLog();
 	private readonly tokens = new Set<string>();
 
 	constructor(
@@ -41,50 +55,85 @@ export class FakeIox {
 	) {}
 
 	handle(request: FakeRequest): Reply | undefined {
-		if (!request.path.startsWith(PREFIX)) return undefined;
+		if (!request.path.startsWith(`${PREFIX}/`)) return undefined;
 		const path = request.path.slice(PREFIX.length);
-		if (path === "/tokenservice" && request.method === "POST")
-			return this.issueToken(request);
-		if (!this.tokens.has(String(request.headers["x-token-id"] ?? ""))) {
-			return error(401, "Invalid or missing X-Token-Id");
+		if (path === "/tokenservice") {
+			return request.method === "POST"
+				? this.issueToken(request)
+				: this.contract.reject(request, 405, "tokenservice only accepts POST");
 		}
-		if (path === "/platform/sysinfo")
-			return json(200, { product_id: "IR1101-K9", os_version: "17.9" });
-		if (path === "/platform/resource/profiles") return json(200, PROFILES);
-		if (path === "/platform/resource/allocations")
-			return json(200, this.allocations());
-		if (path === "/admin/download/logs")
-			return this.downloadLog(request.query.get("filename") ?? "");
-		if (path === "/apps" && request.method === "GET")
-			return json(200, [...this.apps.values()].map(this.view));
-		if (path === "/apps" && request.method === "POST")
-			return this.install(request);
-
-		const match = /^\/apps\/([^/]+)(\/state|\/logs|\/metrics)?$/.exec(path);
-		const app = match
-			? this.apps.get(decodeURIComponent(match[1] ?? ""))
-			: undefined;
-		if (!match || !app) return error(404, "No such app");
-		const sub = match[2];
-		if (!sub && request.method === "GET") return json(200, this.view(app));
-		if (!sub && request.method === "DELETE") return this.uninstall(app);
-		if (sub === "/state" && request.method === "POST")
-			return this.changeState(app, request);
-		if (sub === "/logs") return json(200, this.logIndex(app));
-		if (sub === "/metrics") return this.metrics(app);
-		return error(405, "Method not allowed");
+		const token = request.headers["x-token-id"];
+		if (typeof token !== "string" || token === "") {
+			return this.contract.reject(request, 401, "missing X-Token-Id header");
+		}
+		if (!this.tokens.has(token))
+			return cafError(401, "Token expired or invalid");
+		return this.route(request, path);
 	}
 
 	expireTokens(): void {
 		this.tokens.clear();
 	}
 
+	private route(request: FakeRequest, path: string): Reply {
+		const get = request.method === "GET";
+		if (path === "/platform/sysinfo" && get) {
+			return json(200, {
+				product_id: "IR1101-K9",
+				os_version: "17.9",
+				serial_number: "FCW0000TEST",
+			});
+		}
+		if (path === "/platform/resource/profiles" && get)
+			return json(200, PROFILES);
+		if (path === "/platform/resource/allocations" && get)
+			return json(200, this.allocations());
+		if (path === "/admin/download/logs" && get)
+			return this.downloadLog(request);
+		if (path === "/apps" && get)
+			return json(200, [...this.apps.values()].map(this.view));
+		if (path === "/apps" && request.method === "POST")
+			return this.install(request);
+
+		const match = /^\/apps\/(\w{1,64})(\/state|\/logs|\/metrics)?$/.exec(path);
+		if (!match) return this.contract.reject(request, 404, "no such CAF route");
+		const app = this.apps.get(match[1] ?? "");
+		const sub = match[2] ?? "";
+		const allowed: Record<string, string> = {
+			"": "GET DELETE",
+			"/state": "POST",
+			"/logs": "GET",
+			"/metrics": "GET",
+		};
+		if (!allowed[sub]?.split(" ").includes(request.method)) {
+			return this.contract.reject(
+				request,
+				405,
+				`${request.method} not allowed here`,
+			);
+		}
+		if (!app) return cafError(404, `App ${match[1]} does not exist`);
+		if (sub === "/state") return this.changeState(app, request);
+		if (sub === "/logs") return json(200, this.logIndex(app));
+		if (sub === "/metrics") return this.metrics(app);
+		return request.method === "GET"
+			? json(200, this.view(app))
+			: this.uninstall(app, request);
+	}
+
 	private issueToken(request: FakeRequest): Reply {
+		const auth = request.headers.authorization;
+		if (!auth?.startsWith("Basic ")) {
+			return this.contract.reject(
+				request,
+				401,
+				"tokenservice requires HTTP Basic auth",
+			);
+		}
 		const expected = Buffer.from(
 			`${this.credentials.username}:${this.credentials.password}`,
 		).toString("base64");
-		if (request.headers.authorization !== `Basic ${expected}`)
-			return error(401, "Bad credentials");
+		if (auth !== `Basic ${expected}`) return cafError(401, "Bad credentials");
 		const id = `token-${this.tokens.size + 1}`;
 		this.tokens.add(id);
 		return json(202, { token: { id, expiry_period: 3600 } });
@@ -92,68 +141,127 @@ export class FakeIox {
 
 	private view = (app: FakeApp) => ({
 		id: app.id,
-		name: app.name,
+		name: app.pkg.name,
 		state: app.state,
-		version: app.version,
-		resources: { ...app.resources, cpu: String(app.resources.cpu) },
+		version: app.pkg.version,
+		description: `${app.pkg.appType} app`,
+		// CAF reports some quantities as strings; clients must cope.
+		resources: { ...app.reserved, cpu: String(app.reserved.cpu) },
 	});
 
 	private install(request: FakeRequest): Reply {
-		const id = String(request.headers["x-app-id"] ?? "");
-		if (!/^\w{1,64}$/.test(id)) return error(400, "Invalid app id");
-		if (this.apps.has(id)) return error(409, `App ${id} already exists`);
-		let files: string[];
-		try {
-			files = readTarEntries(request.body).map((entry) => entry.path);
-		} catch {
-			return error(400, "Package is not a valid tar archive");
+		if (contentType(request) !== "application/octet-stream") {
+			return this.contract.reject(
+				request,
+				415,
+				"install expects Content-Type application/octet-stream",
+			);
 		}
-		if (!files.includes("package.yaml"))
-			return error(400, "package.yaml missing from package");
+		const id = request.headers["x-app-id"];
+		if (typeof id !== "string" || !/^\w{1,64}$/.test(id)) {
+			return this.contract.reject(
+				request,
+				400,
+				"install needs an X-App-Id of 1-64 word characters",
+			);
+		}
+		if (this.apps.has(id)) return cafError(409, `App ${id} already exists`);
+		const pkg = openPackage(request.body);
+		if (typeof pkg === "string") return this.contract.reject(request, 400, pkg);
+		const profile = PROFILES[pkg.resources.profile] ?? PROFILES.default;
 		this.apps.set(id, {
 			id,
-			name: id,
 			state: "DEPLOYED",
-			version: "1.0",
-			resources: { profile: "c1.small", cpu: 200, memory: 64, disk: 10 },
-			packageFiles: files,
+			pkg,
+			reserved: {
+				profile: pkg.resources.profile,
+				cpu: pkg.resources.cpu ?? profile?.cpu ?? 0,
+				memory: pkg.resources.memory ?? profile?.memory ?? 0,
+				disk: pkg.resources.disk,
+			},
+			history: ["DEPLOYED"],
 		});
 		return json(201, { message: `App ${id} installed` });
 	}
 
 	private changeState(app: FakeApp, request: FakeRequest): Reply {
 		const action = request.query.get("action") ?? "";
+		const extra = [...request.query.keys()].filter((key) => key !== "action");
 		const rule = TRANSITIONS[action];
-		if (!rule) return error(400, `Unknown action ${action}`);
-		if (!rule.from.includes(app.state)) {
-			return error(409, `Cannot ${action} app in state ${app.state}`);
+		if (!rule || extra.length > 0) {
+			return this.contract.reject(
+				request,
+				400,
+				`state change needs ?action=<activate|start|stop|deactivate> only, got "${request.query}"`,
+			);
 		}
+		const payload = this.statePayload(request, action);
+		if (typeof payload === "string")
+			return this.contract.reject(request, 400, payload);
+		if (!rule.from.includes(app.state))
+			return cafError(409, `Cannot ${action} app in state ${app.state}`);
 		if (action === "activate") {
-			const requested = parseJson(request).resources as
-				| Partial<FakeApp["resources"]>
-				| undefined;
-			const profile = PROFILES[requested?.profile ?? app.resources.profile];
-			app.resources = {
-				profile: requested?.profile ?? app.resources.profile,
-				cpu: Number(requested?.cpu ?? profile?.cpu ?? app.resources.cpu),
+			const requested = payload ?? {};
+			const profileName =
+				typeof requested.profile === "string"
+					? requested.profile
+					: app.reserved.profile;
+			const profile = PROFILES[profileName];
+			if (!profile && profileName !== "custom")
+				return cafError(400, `Unknown profile ${profileName}`);
+			const reserved = {
+				profile: profileName,
+				cpu: Number(requested.cpu ?? profile?.cpu ?? app.reserved.cpu),
 				memory: Number(
-					requested?.memory ?? profile?.memory ?? app.resources.memory,
+					requested.memory ?? profile?.memory ?? app.reserved.memory,
 				),
-				disk: Number(requested?.disk ?? app.resources.disk),
+				disk: Number(requested.disk ?? app.reserved.disk),
 			};
 			const free = this.allocations();
-			if (app.resources.cpu > free.cpu.available_cpu)
-				return error(500, "Insufficient CPU");
+			if (
+				reserved.cpu > free.cpu.available_cpu ||
+				reserved.memory > free.memory.available_memory
+			) {
+				return cafError(500, "App Activation error: insufficient resources");
+			}
+			app.reserved = reserved;
 		}
 		app.state = rule.to;
+		app.history.push(rule.to);
 		return json(200, {
 			message: `App ${app.id} state changed to ${app.state}`,
 		});
 	}
 
-	private uninstall(app: FakeApp): Reply {
+	/** Only activate may carry a body: JSON { resources: { profile|cpu|memory|disk } }. */
+	private statePayload(
+		request: FakeRequest,
+		action: string,
+	): Record<string, unknown> | undefined | string {
+		if (request.body.length === 0) return undefined;
+		if (action !== "activate") return `${action} must not send a body`;
+		if (contentType(request) !== "application/json")
+			return "activation payload must be application/json";
+		const body = jsonObject(request);
+		if (!body || onlyKeys(body, ["resources"]).length > 0)
+			return "activation payload must be { resources: {...} }";
+		const resources = body.resources;
+		if (!resources || typeof resources !== "object")
+			return "activation payload needs a resources object";
+		const unknown = onlyKeys(
+			resources as Record<string, unknown>,
+			RESOURCE_KEYS,
+		);
+		if (unknown.length > 0)
+			return `unknown resource keys: ${unknown.join(", ")}`;
+		return resources as Record<string, unknown>;
+	}
+
+	private uninstall(app: FakeApp, request: FakeRequest): Reply {
+		if (request.body.length > 0)
+			return this.contract.reject(request, 400, "DELETE must not send a body");
 		if (app.state !== "DEPLOYED")
-			return error(409, `Cannot delete app in state ${app.state}`);
+			return cafError(409, `Cannot delete app in state ${app.state}`);
 		this.apps.delete(app.id);
 		return json(200, { message: `App ${app.id} uninstalled` });
 	}
@@ -163,7 +271,7 @@ export class FakeIox {
 			(a) => a.state !== "DEPLOYED",
 		);
 		const sum = (key: "cpu" | "memory" | "disk") =>
-			reserved.reduce((total, a) => total + a.resources[key], 0);
+			reserved.reduce((total, a) => total + a.reserved[key], 0);
 		return {
 			cpu: { total_cpu: TOTAL.cpu, available_cpu: TOTAL.cpu - sum("cpu") },
 			memory: {
@@ -180,27 +288,41 @@ export class FakeIox {
 	private logIndex(app: FakeApp) {
 		return ["stdout.log", "watchDog.log"].map((filename) => ({
 			filename,
-			size_bytes: this.logText(app.id, filename).length,
+			size_bytes: this.logText(app, filename).length,
 			timestamp: "Sat Jan 10 17:00:00 2026",
 			download_link: `/admin/download/logs?filename=${app.id}-${filename}`,
 		}));
 	}
 
-	private logText(appId: string, filename: string): string {
+	/** Log lines reflect the app's real history, so tests see state-dependent output. */
+	logText(app: FakeApp, filename: string): string {
+		if (filename === "watchDog.log") {
+			return app.history
+				.map((state, i) => `${i + 1}: ${app.id} entered ${state}`)
+				.join("\n");
+		}
+		const runs = app.history.filter((s) => s === "RUNNING").length;
 		return Array.from(
-			{ length: 5 },
-			(_, i) => `${appId} ${filename} line ${i + 1}`,
+			{ length: runs * 3 },
+			(_, i) => `${app.pkg.name} says hello #${i + 1}`,
 		).join("\n");
 	}
 
-	private downloadLog(qualified: string): Reply {
+	private downloadLog(request: FakeRequest): Reply {
+		const qualified = request.query.get("filename");
+		if (!qualified)
+			return this.contract.reject(
+				request,
+				400,
+				"log download needs ?filename=",
+			);
 		const app = [...this.apps.values()].find((a) =>
 			qualified.startsWith(`${a.id}-`),
 		);
-		if (!app) return error(404, "No such log");
+		if (!app) return cafError(404, "No such log");
 		return {
 			status: 200,
-			body: this.logText(app.id, qualified.slice(app.id.length + 1)),
+			body: this.logText(app, qualified.slice(app.id.length + 1)),
 		};
 	}
 
@@ -208,8 +330,11 @@ export class FakeIox {
 		const running = app.state === "RUNNING";
 		return json(200, {
 			[app.id]: {
-				memory: { current: running ? 6688 : 0, unit: "KB" },
-				cpu: { current: running ? 0.01 : 0, unit: "percent" },
+				memory: {
+					current: running ? app.reserved.memory * 100 : 0,
+					unit: "KB",
+				},
+				cpu: { current: running ? 1.5 : 0, unit: "percent" },
 				network: { current: running ? 99601 : 0, unit: "bytes" },
 				disk: { current: 0.03, unit: "MB" },
 			},

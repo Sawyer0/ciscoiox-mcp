@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { FakeCiscoServer } from "../../../test/fake-cisco/fake-cisco-server";
 import { UpstreamError } from "../../domain/errors";
 import { QualiSandboxApi } from "./quali-sandbox-api";
@@ -14,6 +14,9 @@ beforeAll(async () => {
 	baseUrl = `http://127.0.0.1:${await fake.start()}/api`;
 });
 afterAll(() => fake.stop());
+afterEach(() => {
+	expect(fake.violations).toEqual([]);
+});
 
 describe("QualiSandboxApi against a fake CloudShell", () => {
 	it("logs in with the token as a Basic authorization header and lists sandboxes", async () => {
