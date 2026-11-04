@@ -12,7 +12,8 @@
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"coverage": "vitest run --coverage"
+		"coverage": "vitest run --coverage --exclude 'test/e2e/**'",
+		"test:e2e": "vitest run test/e2e"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.25.2",
