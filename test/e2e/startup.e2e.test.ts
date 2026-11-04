@@ -3,10 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BUN, ENTRY } from "./harness";
+import { SERVER } from "./harness";
 
 const run = (env: Record<string, string>) =>
-	spawnSync(BUN, [ENTRY], {
+	spawnSync(SERVER.command, SERVER.args, {
 		cwd: mkdtempSync(join(tmpdir(), "ciscoiox-start-")),
 		env: { PATH: process.env.PATH ?? "", ...env },
 		encoding: "utf8",
